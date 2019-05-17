@@ -1,16 +1,16 @@
 // Copyright (c) 2019 The OpenSDS Authors.
 //
-// Licensed under the Apache License, Version 2.0 (the "License"); you may
-// not use this file except in compliance with the License. You may obtain
-// a copy of the License at
+//    Licensed under the Apache License, Version 2.0 (the "License"); you may
+//    not use this file except in compliance with the License. You may obtain
+//    a copy of the License at
 //
-//      http://www.apache.org/licenses/LICENSE-2.0
+//         http://www.apache.org/licenses/LICENSE-2.0
 //
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-// WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-// License for the specific language governing permissions and limitations
-// under the License.
+//    Unless required by applicable law or agreed to in writing, software
+//    distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
+//    WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
+//    License for the specific language governing permissions and limitations
+//    under the License.
 package ceph
 
 import (
@@ -36,6 +36,29 @@ resources:
       - pool_read_bytes_total
       - pool_write_total
       - pool_write_bytes_total
+  - resource: cluster
+    metrics:
+      - cluster_capacity_bytes
+      - cluster_used_bytes
+      - cluster_available_bytes
+      - cluster_objects
+  - resource: osd
+    metrics:
+      - perf_commit_latency
+      - perf_apply_latency
+      - crush_weight
+      - depth
+      - reweight
+      - bytes
+      - used_bytes
+      - avail_bytes
+      - utilization
+      - variance
+      - pgs
+      - total_bytes
+      - total_used_bytes
+      - total_avail_bytes
+      - average_utilization
 `
 
 type Config struct {
@@ -103,12 +126,7 @@ func (d *MetricDriver) ValidateMetricsSupportList(metricList []string, resourceT
 //	metricArray	-> the array of metrics to be returned
 func (d *MetricDriver) CollectMetrics(metricsList []string, instanceID string) ([]*model.MetricSpec, error) {
 
-	//validate metric support list
-	supportedMetrics, err := d.ValidateMetricsSupportList(metricsList, "pool")
-	if supportedMetrics == nil {
-		log.Infof("no metrics found in the  supported metric list")
-	}
-	metricMap, err := d.cli.CollectMetrics(supportedMetrics, instanceID)
+	metricMap, err := d.cli.CollectMetrics(metricsList, instanceID)
 
 	var tempMetricArray []*model.MetricSpec
 
@@ -116,12 +134,18 @@ func (d *MetricDriver) CollectMetrics(metricsList []string, instanceID string) (
 		val, _ := strconv.ParseFloat(metricMap[i].Value, 64)
 		//Todo: See if association  is required here, resource discovery could fill this information
 		associatorMap := make(map[string]string)
-		associatorMap["cluster"] = metricMap[i].Const_Label
-		//TODO: "pool" mention here will be resourceType
-		associatorMap["pool"] = metricMap[i].Var_Label
+		for k := range metricMap[i].Const_Label {
+			associatorMap[k] = metricMap[i].Const_Label[k]
+		}
+		if metricMap[i].Var_Label != nil {
+			for k := range metricMap[i].Var_Label {
+				associatorMap[k] = metricMap[i].Var_Label[k]
+			}
+		}
+
 		metricValue := &model.Metric{
-			Timestamp: getCurrentUnixTimestamp(),
 			Value:     val,
+			Timestamp: getCurrentUnixTimestamp(),
 		}
 		metricValues := make([]*model.Metric, 0)
 		metricValues = append(metricValues, metricValue)
@@ -133,7 +157,7 @@ func (d *MetricDriver) CollectMetrics(metricsList []string, instanceID string) (
 			Labels:       associatorMap,
 			//Todo Take Componet from Post call, as of now it is only for pool ( will use "resourceType" instead
 			// Pass "resourceType" as 3rd parameter which will be used as Componet's field
-			Component:    "pool",
+			Component:    metricMap[i].Help,
 			Name:         metricMap[i].Name,
 			Unit:         metricMap[i].Unit,
 			AggrType:     metricMap[i].AggrType,
